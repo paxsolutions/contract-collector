@@ -1,0 +1,56 @@
+version: "3.9"
+
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  collector:
+    build: .
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      COLLECTOR_MONGO_URI: mongodb://mongo:27017
+      COLLECTOR_REDIS_URL: redis://redis:6379/0
+      COLLECTOR_LOG_JSON: "true"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+    command: ["collect"]
+
+  processor:
+    build: .
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      COLLECTOR_MONGO_URI: mongodb://mongo:27017
+      COLLECTOR_LOG_JSON: "true"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+    command: ["process"]
+    profiles:
+      - ml
+
+volumes:
+  mongo_data:
