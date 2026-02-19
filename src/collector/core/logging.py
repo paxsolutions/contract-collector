@@ -1,4 +1,4 @@
-"""Structured JSON logging via structlog."""
+"""Structured logging — rich console for local dev, JSON for production."""
 
 from __future__ import annotations
 
@@ -6,8 +6,27 @@ import logging
 import sys
 
 import structlog
+from rich.console import Console
+from rich.theme import Theme
 
 from collector.core.config import settings
+
+# ── Rich console with custom theme ─────────────────────────────────────
+
+_THEME = Theme(
+    {
+        "log.level.debug": "dim cyan",
+        "log.level.info": "bold green",
+        "log.level.warning": "bold yellow",
+        "log.level.error": "bold red",
+        "log.level.critical": "bold white on red",
+        "log.event": "bold white",
+        "log.key": "dim",
+        "log.value": "cyan",
+    }
+)
+
+console = Console(stderr=True, theme=_THEME)
 
 
 def setup_logging() -> None:
@@ -22,7 +41,28 @@ def setup_logging() -> None:
     if settings.log_json:
         renderer: structlog.types.Processor = structlog.processors.JSONRenderer()
     else:
-        renderer = structlog.dev.ConsoleRenderer()
+        _kv = structlog.dev.KeyValueColumnFormatter
+        renderer = structlog.dev.ConsoleRenderer(
+            columns=[
+                structlog.dev.Column(
+                    "timestamp",
+                    _kv(
+                        key_style=None, value_style="dim",
+                        reset_style="dim", prefix="", postfix=" ",
+                    ),
+                ),
+                structlog.dev.Column("level", structlog.dev.LogLevelColumnFormatter()),
+                structlog.dev.Column(
+                    "event",
+                    _kv(key_style=None, value_style="bold", reset_style="", prefix="", postfix=" "),
+                ),
+                structlog.dev.Column(
+                    "",
+                    _kv(key_style="dim", value_style="cyan", reset_style="", prefix="", postfix=""),
+                ),
+            ],
+            exception_formatter=structlog.dev.rich_traceback,
+        )
 
     structlog.configure(
         processors=[

@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     max_retries: int = Field(default=3, ge=0)
     retry_backoff_base: float = Field(default=2.0, ge=1.0)
 
+    # ── API keys ─────────────────────────────────────────────────────────
+    sam_gov_api_key: str = Field(default="", description="SAM.gov public API key")
+
     # ── Playwright ────────────────────────────────────────────────────────
     browser_type: Literal["chromium", "firefox", "webkit"] = "chromium"
     headless: bool = True
@@ -54,7 +57,9 @@ class Settings(BaseSettings):
 
     # ── Logging ───────────────────────────────────────────────────────────
     log_level: str = Field(default="INFO")
-    log_json: bool = Field(default=True, description="Emit structured JSON logs")
+    log_json: bool = Field(
+        default=False, description="Emit structured JSON logs (set True in CI/prod)"
+    )
 
 
 settings = Settings()

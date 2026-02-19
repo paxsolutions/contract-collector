@@ -24,6 +24,7 @@ class AdapterMeta:
     base_url: str
     description: str = ""
     tags: list[str] = field(default_factory=list)
+    requires_browser: bool = True
 
 
 class BaseAdapter(abc.ABC):
@@ -32,6 +33,9 @@ class BaseAdapter(abc.ABC):
     Subclasses must implement:
       - ``meta`` (class attribute / property)
       - ``extract(page) -> AsyncIterator[RawRecord]``
+
+    For API-only adapters set ``meta.requires_browser = False``;
+    the orchestrator will pass ``page=None``.
 
     Optionally override:
       - ``login(page)`` for authenticated portals
@@ -56,12 +60,12 @@ class BaseAdapter(abc.ABC):
     # ── core contract ─────────────────────────────────────────────────────
 
     @abc.abstractmethod
-    async def extract(self, page: Page) -> AsyncIterator[RawRecord]:
+    async def extract(self, page: Page | None) -> AsyncIterator[RawRecord]:
         """Yield RawRecord instances from the portal.
 
-        The orchestrator provides a Playwright ``Page`` that is already navigated
-        to ``build_start_url()``.  The adapter is responsible for pagination,
-        clicking through filters, waiting for AJAX, etc.
+        For browser adapters the orchestrator provides a Playwright ``Page``
+        already navigated to ``build_start_url()``.  API adapters receive
+        ``None`` and should use ``httpx`` or similar.
         """
         ...  # pragma: no cover
         # Make this an async generator so type checkers are happy
@@ -69,8 +73,11 @@ class BaseAdapter(abc.ABC):
 
     # ── snapshot helper ───────────────────────────────────────────────────
 
-    async def save_snapshot(self, page: Page, label: str = "error") -> Path:
+    async def save_snapshot(self, page: Page | None, label: str = "error") -> Path:
         """Save an HTML snapshot on failure for debugging."""
+        if page is None:
+            log.warning("snapshot.skipped", reason="no_page", adapter=self.meta.name)
+            return Path("/dev/null")
         snap_dir = settings.snapshot_dir / self.meta.name
         snap_dir.mkdir(parents=True, exist_ok=True)
         path = snap_dir / f"{label}_{page.url.split('/')[-1][:60]}.html"

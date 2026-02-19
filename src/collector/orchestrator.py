@@ -94,6 +94,8 @@ class Orchestrator:
     async def _run_adapter(self, browser: Any, adapter_name: str) -> None:
         async with self._semaphore:
             log.info("orchestrator.adapter.start", adapter=adapter_name)
+            page = None
+            context = None
             try:
                 adapter_cls = get_adapter(adapter_name)
 
@@ -101,19 +103,20 @@ class Orchestrator:
                 checkpoint = await self.store.get_latest_source_id(adapter_name)
                 adapter = adapter_cls(checkpoint=checkpoint)
 
-                context = await browser.new_context(
-                    user_agent=(
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                if adapter.meta.requires_browser:
+                    context = await browser.new_context(
+                        user_agent=(
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/120.0.0.0 Safari/537.36"
+                        )
                     )
-                )
-                page = await context.new_page()
-                page.set_default_timeout(settings.request_timeout_s * 1000)
+                    page = await context.new_page()
+                    page.set_default_timeout(settings.request_timeout_s * 1000)
 
-                start_url = adapter.build_start_url()
-
-                await self._navigate_with_retry(page, start_url)
-                await adapter.login(page)
+                    start_url = adapter.build_start_url()
+                    await self._navigate_with_retry(page, start_url)
+                    await adapter.login(page)
 
                 limiter = self._get_limiter(adapter.meta.base_url.split("/")[2])
 
@@ -125,12 +128,24 @@ class Orchestrator:
                         else:
                             self.metrics.items_skipped += 1
 
-                await context.close()
                 log.info("orchestrator.adapter.done", adapter=adapter_name)
 
             except Exception:
                 self.metrics.failures += 1
                 log.exception("orchestrator.adapter.failed", adapter=adapter_name)
+                if page is not None:
+                    try:
+                        snap_dir = settings.snapshot_dir / adapter_name
+                        snap_dir.mkdir(parents=True, exist_ok=True)
+                        await page.screenshot(
+                            path=str(snap_dir / "failure.png"), full_page=True,
+                        )
+                        log.info("orchestrator.screenshot_saved", adapter=adapter_name)
+                    except Exception:  # noqa: BLE001
+                        pass
+            finally:
+                if context is not None:
+                    await context.close()
 
     # ── retry-enabled navigation ──────────────────────────────────────────
 

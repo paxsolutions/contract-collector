@@ -1,100 +1,102 @@
 """Adapter for SAM.gov — the US federal procurement portal.
 
-SAM.gov exposes contract opportunities via a JS-heavy search interface.
-This adapter navigates the opportunity search, handles pagination, and
-extracts listing details.
+Uses the public ``api.sam.gov`` Opportunities REST API (v2).  Requires
+a free API key obtainable from your SAM.gov Account Details page.
+Set the key via ``COLLECTOR_SAM_GOV_API_KEY`` env var.
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 
+import httpx
 from playwright.async_api import Page
 
 from collector.adapters.base import AdapterMeta, BaseAdapter
 from collector.adapters.registry import register_adapter
+from collector.core.config import settings
 from collector.core.logging import get_logger
 from collector.core.schemas import RawRecord
 
 log = get_logger(__name__)
 
+_API_BASE = "https://api.sam.gov/opportunities/v2/search"
+_PAGE_SIZE = 25
+
 
 @register_adapter
 class SamGovAdapter(BaseAdapter):
-    """Scraper for SAM.gov contract opportunities."""
+    """Fetch active federal contract opportunities from the SAM.gov API."""
 
     meta = AdapterMeta(
         name="sam_gov",
-        base_url="https://sam.gov/search/?index=opp&page=1&sort=-modifiedDate&sfm%5Bstatus%5D%5Bis_active%5D=true",
-        description="US federal procurement opportunities (SAM.gov)",
+        base_url="https://api.sam.gov",
+        description="US federal procurement opportunities (SAM.gov API)",
         tags=["federal", "us"],
+        requires_browser=False,
     )
 
-    async def extract(self, page: Page) -> AsyncIterator[RawRecord]:
-        """Navigate SAM.gov opportunity listing and yield raw records."""
-        log.info("sam_gov.extract.start", url=page.url)
+    async def extract(self, page: Page | None) -> AsyncIterator[RawRecord]:
+        """Page through the SAM.gov Opportunities API and yield raw records."""
+        api_key = getattr(settings, "sam_gov_api_key", "") or ""
+        if not api_key:
+            log.error("sam_gov.extract.missing_api_key",
+                      hint="Set COLLECTOR_SAM_GOV_API_KEY in .env")
+            return
 
-        while True:
-            # Wait for the results table to load
-            await page.wait_for_selector(
-                "[data-testid='opportunity-result'], .opportunity-result, .results-list .result",
-                timeout=15_000,
-            )
+        now = datetime.now(tz=UTC)
+        posted_from = (now - timedelta(days=30)).strftime("%m/%d/%Y")
+        posted_to = now.strftime("%m/%d/%Y")
+        offset = 0
 
-            rows = await page.query_selector_all(
-                "[data-testid='opportunity-result'], .opportunity-result, .results-list .result"
-            )
-            if not rows:
-                log.info("sam_gov.extract.no_rows")
-                break
+        async with httpx.AsyncClient(timeout=30) as client:
+            while True:
+                params = {
+                    "api_key": api_key,
+                    "postedFrom": posted_from,
+                    "postedTo": posted_to,
+                    "limit": _PAGE_SIZE,
+                    "offset": offset,
+                }
+                log.info("sam_gov.api.request", offset=offset)
+                resp = await client.get(_API_BASE, params=params)
+                resp.raise_for_status()
+                data = resp.json()
 
-            for row in rows:
-                try:
-                    title_el = await row.query_selector("h3 a, .title a, a.opportunity-link")
-                    title = (await title_el.inner_text()).strip() if title_el else ""
-                    link = await title_el.get_attribute("href") if title_el else ""
+                opps = data.get("opportunitiesData", [])
+                if not opps:
+                    log.info("sam_gov.extract.no_more_results", offset=offset)
+                    break
 
-                    agency_el = await row.query_selector(
-                        ".agency, [data-testid='agency'], .department"
-                    )
-                    agency = (await agency_el.inner_text()).strip() if agency_el else ""
-
-                    date_el = await row.query_selector(
-                        ".date, [data-testid='posted-date'], .posted-date"
-                    )
-                    date_text = (await date_el.inner_text()).strip() if date_el else ""
-
-                    source_id = (link or "").split("/")[-1] or title[:40]
-
-                    # Check against checkpoint for incremental runs
-                    if self.checkpoint and source_id == self.checkpoint:
-                        log.info("sam_gov.extract.checkpoint_reached", source_id=source_id)
+                for opp in opps:
+                    notice_id = opp.get("noticeId", "")
+                    if self.checkpoint and notice_id == self.checkpoint:
+                        log.info("sam_gov.extract.checkpoint_reached",
+                                 source_id=notice_id)
                         return
 
                     yield RawRecord(
-                        source_id=source_id,
+                        source_id=notice_id,
                         source_name=self.meta.name,
-                        source_url=f"https://sam.gov{link}" if link else page.url,
+                        source_url=opp.get("uiLink", f"https://sam.gov/opp/{notice_id}/view"),
                         extracted={
-                            "title": title,
-                            "agency": agency,
-                            "posted_date": date_text,
-                            "link": link,
+                            "title": opp.get("title", ""),
+                            "agency": opp.get("department", ""),
+                            "sub_tier": opp.get("subTier", ""),
+                            "office": opp.get("office", ""),
+                            "posted_date": opp.get("postedDate", ""),
+                            "response_deadline": opp.get("responseDeadLine", ""),
+                            "type": opp.get("type", ""),
+                            "set_aside": opp.get("typeOfSetAsideDescription", ""),
+                            "naics_code": opp.get("naicsCode", ""),
+                            "solicitation_number": opp.get("solicitationNumber", ""),
                         },
                     )
-                except Exception:
-                    log.exception("sam_gov.extract.row_error")
-                    await self.save_snapshot(page, label="row_error")
 
-            # Pagination — try clicking next
-            next_btn = await page.query_selector(
-                "button[aria-label='Next'], .pagination .next:not(.disabled)"
-            )
-            if next_btn and await next_btn.is_enabled():
-                await next_btn.click()
-                await page.wait_for_load_state("networkidle")
-            else:
-                log.info("sam_gov.extract.last_page")
-                break
+                total = data.get("totalRecords", 0)
+                offset += _PAGE_SIZE
+                if offset >= total:
+                    break
 
         log.info("sam_gov.extract.done")
