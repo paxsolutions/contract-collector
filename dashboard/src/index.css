@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-primary: #3b82f6;
+  --color-primary-dark: #2563eb;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f8fafc;
+  --color-border: #e2e8f0;
+  --color-muted: #64748b;
+  --color-heading: #111827;
+  --color-chart-grid: #e2e8f0;
+  --color-chart-tick: #374151;
+  --color-chart-tooltip-bg: #ffffff;
+  --color-chart-tooltip-border: #e2e8f0;
+}
+
+.dark {
+  --color-primary: #60a5fa;
+  --color-primary-dark: #93bbfd;
+  --color-surface: #1e293b;
+  --color-surface-alt: #0f172a;
+  --color-border: #334155;
+  --color-muted: #94a3b8;
+  --color-heading: #f1f5f9;
+  --color-chart-grid: #334155;
+  --color-chart-tick: #94a3b8;
+  --color-chart-tooltip-bg: #1e293b;
+  --color-chart-tooltip-border: #475569;
+}
+
+body {
+  margin: 0;
+  font-family:
+    "Inter",
+    system-ui,
+    -apple-system,
+    sans-serif;
+  background-color: var(--color-surface-alt);
+  color: var(--color-heading);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+/* Recharts tooltip dark styling */
+.dark .recharts-default-tooltip {
+  background-color: var(--color-chart-tooltip-bg) !important;
+  border-color: var(--color-chart-tooltip-border) !important;
+  color: var(--color-heading) !important;
+}
+
+.dark .recharts-legend-item-text {
+  color: var(--color-muted) !important;
+}
+
+/* Form controls in dark mode */
+.dark select,
+.dark input {
+  color: var(--color-heading);
+}
+
+.dark select option {
+  background-color: var(--color-surface);
+  color: var(--color-heading);
+}

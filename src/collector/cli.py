@@ -77,6 +77,22 @@ def train_classifier() -> None:
 
 
 @main.command()
+@click.option("--host", default="0.0.0.0", help="Bind address")
+@click.option("--port", "-p", default=8000, help="Port to listen on")
+@click.option("--reload", "live_reload", is_flag=True, help="Auto-reload on code changes")
+def serve(host: str, port: int, live_reload: bool) -> None:
+    """Start the REST API server for the dashboard."""
+    import uvicorn
+
+    uvicorn.run(
+        "collector.api.app:app",
+        host=host,
+        port=port,
+        reload=live_reload,
+    )
+
+
+@main.command()
 def list_adapters() -> None:
     """List all registered adapters."""
     from collector.adapters import nyc_procurement, sam_gov  # noqa: F401

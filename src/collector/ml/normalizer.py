@@ -13,7 +13,7 @@ log = get_logger(__name__)
 
 # Common suffixes / noise words to strip when normalizing vendor names
 _VENDOR_NOISE = re.compile(
-    r"\b(inc|llc|ltd|corp|corporation|company|co|group|holdings|plc|lp|llp)\.?\b",
+    r"\b(inc|llc|ltd|corp|corporation|company|co|group|holdings|plc|lp|llp)\b\.?",
     re.IGNORECASE,
 )
 _WHITESPACE = re.compile(r"\s+")

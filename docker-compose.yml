@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   mongo:
     image: mongo:7
@@ -51,6 +49,25 @@ services:
     command: ["process"]
     profiles:
       - ml
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      COLLECTOR_MONGO_URI: mongodb://mongo:27017
+      COLLECTOR_LOG_JSON: "true"
+    command: ["serve", "--host", "0.0.0.0", "--port", "8000"]
+
+  dashboard:
+    build: ./dashboard
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
 
 volumes:
   mongo_data:

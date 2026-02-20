@@ -28,6 +28,8 @@ dependencies = [
     "redis>=5.0",               # optional worker queue backend
     "rq>=1.16",                 # optional Redis Queue
     "rich>=14.3.2",
+    "fastapi>=0.129.0",
+    "uvicorn[standard]>=0.41.0",
 ]
 
 [project.optional-dependencies]
